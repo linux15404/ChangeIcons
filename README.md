@@ -24,9 +24,25 @@
 
 Всё, что менялось, лежит в `~/.local/share/changeicons` (на Windows — в `%APPDATA%\ChangeIcons`). Удалил папку с бэкапом — об откате забудь, лучше не удаляй.
 
-## Установка и запуск
+## Как поставить
 
 Нужен Python 3.10+.
+
+### Windows
+
+1. Если Python ещё не стоит — возьми с [python.org](https://www.python.org/downloads/) и при установке обязательно отметь галочку **Add Python to PATH**.
+2. На этой странице жми зелёную кнопку **Code → Download ZIP**, распакуй архив куда удобно.
+3. Открой командную строку в распакованной папке (в проводнике: адресная строка → `cmd`).
+4. Ставим и запускаем:
+
+```bat
+python -m pip install .
+python -m changeicons
+```
+
+`pywin32` поставится сам — он нужен для работы с `.exe` и `.lnk`.
+
+### Linux
 
 ```bash
 git clone https://github.com/linux15404/ChangeIcons.git
@@ -37,7 +53,7 @@ pip install .
 python -m changeicons
 ```
 
-На Windows `pywin32` поставится сам вместе с пакетом — он нужен только для работы с `.exe` и `.lnk`.
+Если git не нужен — качай ZIP, а команды те же, только без `git clone`.
 
 ## Как устроено внутри
 
