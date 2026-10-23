@@ -1,51 +1,35 @@
+import os
 import tkinter as tk
 from tkinter import filedialog, font as tkfont
-from tkinter import ttk
+from pathlib import Path
 
 from PIL import Image, ImageTk
 
 from ..core import backup
 from ..core import icons
-from ..core.apps import list_apps
+from ..core.apps import from_path
 from ..platforms.base import get_platform
 from .strings import LANGS
-BG = "#16161e"
-PANEL = "#1f2335"
-PANEL2 = "#262b40"
-ACCENT = "#7aa2f7"
-TEXT = "#c0caf5"
-MUTED = "#565f89"
-GREEN = "#9ece6a"
-RED = "#f7768e"
 
-ICON_DIRS = [
-    # где ищем текущую иконку приложения для превью
-    "/usr/share/icons/hicolor/256x256/apps",
-    "/usr/share/icons/hicolor/128x128/apps",
-    "/usr/share/icons/hicolor/64x64/apps",
-    "/usr/share/icons/hicolor/48x48/apps",
-    "/usr/share/pixmaps",
-]
+# чёрно-белая палитра: от чёрного к светло-серому
+BG = "#0a0a0a"
+PANEL = "#151515"
+PANEL2 = "#212121"
+HOVER = "#2c2c2c"
+TEXT = "#f2f2f2"
+MUTED = "#8d8d8d"
+ERROR = "#c9c9c9"
+
+LOGO = Path(__file__).parent.parent / "assets/logo.png"
+
+IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 
 
-def _find_icon(name):
-    if not name:
-        return None
-    # windows пишет иконку как "C:\...\icon.ico,0" — отсекаем индекс
-    if name.count(",") and name.rsplit(",", 1)[1].strip().isdigit():
-        name = name.rsplit(",", 1)[0]
-    low = name.lower()
-    import os
-
-    if low.endswith((".png", ".ico", ".gif", ".xpm", ".jpg", ".jpeg")):
-        return name if os.path.exists(name) else None
-    if name.startswith("/"):
-        for d in ICON_DIRS:
-            for ext in (".png", ".xpm"):
-                p = f"{d}/{name}{ext}"
-                if os.path.exists(p):
-                    return p
-    return None
+def _initial_dir():
+    if os.name == "nt":
+        return str(Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs")
+    d = "/usr/share/applications"
+    return d if os.path.isdir(d) else str(Path.home())
 
 
 class App(tk.Tk):
@@ -53,285 +37,197 @@ class App(tk.Tk):
         super().__init__()
         self.title("ChangeIcons")
         self.configure(bg=BG)
-        self.geometry("820x540")
-        self.minsize(720, 460)
+        self.geometry("480x360")
+        self.minsize(440, 330)
 
         fams = tkfont.families()
         self.fam = next((f for f in ("Ubuntu", "Noto Sans", "Segoe UI", "DejaVu Sans") if f in fams), "TkDefaultFont")
 
+        try:
+            self.iconphoto(True, ImageTk.PhotoImage(Image.open(LOGO)))
+        except Exception:
+            pass
+
         self.lang = "ru"
         self.t = LANGS[self.lang]
         self.platform = get_platform()
-        self.all_apps = list_apps()
-        self.selected = None
+        self.selected = None   # собранный из пути App
+        self.app_path = None
         self.image_path = None
-        self._thumb = None    #PhotoImage надо держать в поле, иначе удалит сборщик мусора
-        self._cur_thumb = None
-        self._rows = []
+        self._thumb = None     # PhotoImage надо держать в поле, иначе его удалит сборщик
 
         self._build()
-        self._fill_list()
 
-    # ---------- каркас окна ----------
+    # ---------- каркас ----------
     def _build(self):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
         head = tk.Frame(self, bg=PANEL)
         head.grid(row=0, column=0, sticky="ew")
-        tk.Frame(head, bg=ACCENT, height=2).pack(fill="x", side="bottom")
-
-        inner = tk.Frame(head, bg=PANEL)
-        inner.pack(fill="x", padx=20, pady=12)
-        tk.Label(inner, text="ChangeIcons", bg=PANEL, fg=ACCENT,
-                 font=(self.fam, 16, "bold")).pack(side="left")
-        self.subtitle = tk.Label(inner, bg=PANEL, fg=MUTED, font=(self.fam, 10))
-        self.subtitle.pack(side="left", padx=10)
-        self.lang_btn = self._button(inner, "", self._switch_lang, PANEL2, MUTED, small=True,
-                                     padx=10, pady=3)
-        self.lang_btn.pack(side="right")
+        logo = Image.open(LOGO).resize((26, 26), Image.LANCZOS)
+        self._logo_img = ImageTk.PhotoImage(logo)
+        tk.Label(head, image=self._logo_img, bg=PANEL).pack(side="left", padx=(16, 8), pady=8)
+        self.lang_btn = self._button(head, LANGS["en"]["lang"], self._switch_lang,
+                                     PANEL, MUTED, padx=10)
+        self.lang_btn.pack(side="right", padx=12)
 
         body = tk.Frame(self, bg=BG)
-        body.grid(row=1, column=0, sticky="nsew", padx=16, pady=16)
-        body.columnconfigure(0, weight=3)
-        body.columnconfigure(1, weight=4)
-        body.rowconfigure(0, weight=1)
+        body.grid(row=1, column=0, sticky="nsew")
+        box = tk.Frame(body, bg=BG)
+        box.pack(expand=True, fill="both")
+        inner = tk.Frame(box, bg=BG)
+        inner.pack(expand=True)
 
-        # --- левая колонка: список приложений ---
-        left = tk.Frame(body, bg=PANEL)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        left.rowconfigure(1, weight=1)
-        left.columnconfigure(0, weight=1)
+        # приложение: поле пути + кнопка выбора
+        row1 = tk.Frame(inner, bg=BG)
+        row1.pack(fill="x", pady=(0, 8))
+        self.app_entry = self._entry(row1, self.t["app_ph"])
+        self.app_entry.pack(side="left", fill="x", expand=True, ipadx=6, ipady=6)
+        self.app_entry.bind("<Return>", self._load_app_from_entry)
+        self.app_btn = self._button(row1, self.t["pick_app"], self._pick_app, PANEL2, TEXT, padx=12)
+        self.app_btn.pack(side="left", padx=(8, 0))
 
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *a: self._fill_list())
-        self.search = tk.Entry(left, textvariable=self.search_var, bg=PANEL2, fg=MUTED,
-                               relief="flat", insertbackground=TEXT, highlightthickness=0,
-                               font=(self.fam, 10))
-        self.search.bind("<FocusIn>", self._placeholder_out)
-        self.search.bind("<FocusOut>", self._placeholder_in)
-        self.search.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4), ipady=5)
+        # картинка: миник превью + поле пути + кнопка
+        row2 = tk.Frame(inner, bg=BG)
+        row2.pack(fill="x", pady=(0, 18))
+        self.thumb = tk.Label(row2, text="", bg=PANEL2, width=3, fg=MUTED)
+        self.thumb.pack(side="left", ipady=3, ipadx=3, padx=(0, 8))
+        self.img_entry = self._entry(row2, self.t["img_ph"])
+        self.img_entry.pack(side="left", fill="x", expand=True, ipadx=6, ipady=6)
+        self.img_entry.bind("<Return>", self._load_img_from_entry)
+        self.img_btn = self._button(row2, self.t["pick_img"], self._pick_image, PANEL2, TEXT, padx=12)
+        self.img_btn.pack(side="left", padx=(8, 0))
 
-        listwrap = tk.Frame(left, bg=PANEL)
-        listwrap.grid(row=1, column=0, sticky="nsew", padx=(4, 0))
-        listwrap.rowconfigure(0, weight=1)
-        listwrap.columnconfigure(0, weight=1)
+        row3 = tk.Frame(inner, bg=BG)
+        row3.pack()
+        self.apply_btn = self._button(row3, self.t["apply"], self._apply, TEXT, BG, padx=18, bold=True)
+        self.apply_btn.pack(side="left", padx=(0, 8))
+        self.restore_btn = self._button(row3, self.t["restore"], self._restore, PANEL2, TEXT, padx=18)
+        self.restore_btn.pack(side="left")
 
-        self.list = tk.Canvas(listwrap, bg=PANEL, highlightthickness=0, bd=0)
-        self.scroll = ttk.Scrollbar(listwrap, orient="vertical", command=self.list.yview)
-        self.list.configure(yscrollcommand=self.scroll.set)
-        self.list.grid(row=0, column=0, sticky="nsew")
-        self.scroll.grid(row=0, column=1, sticky="ns")
-        self.inner = tk.Frame(self.list, bg=PANEL)
-        self._win = self.list.create_window((0, 0), window=self.inner, anchor="nw")
-        self.inner.bind("<Configure>", lambda e: self.list.configure(scrollregion=self.list.bbox("all")))
-        self.list.bind("<Configure>", lambda e: self.list.itemconfigure(self._win, width=e.width))
-        self._wheel(self.list)
-
-        self.count_label = tk.Label(left, bg=PANEL, fg=MUTED, font=(self.fam, 9))
-        self.count_label.grid(row=2, column=0, sticky="w", padx=14, pady=(2, 8))
-
-        # --- правая колонка: превью и действия ---
-        right = tk.Frame(body, bg=PANEL)
-        right.grid(row=0, column=1, sticky="nsew")
-        right.columnconfigure(0, weight=1)
-
-        self.app_name = tk.Label(right, bg=PANEL, fg=TEXT, font=(self.fam, 13, "bold"),
-                                 justify="center", wraplength=320)
-        self.app_name.pack(pady=(24, 0))
-
-        box_cur = tk.Frame(right, bg=PANEL2)
-        box_cur.pack(pady=(8, 4), ipadx=10, ipady=10)
-        self.cur_prev = tk.Label(box_cur, bg=PANEL2, width=12, fg=MUTED)
-        self.cur_prev.pack()
-        self.cur_title = tk.Label(right, bg=PANEL, fg=MUTED, font=(self.fam, 9))
-        self.cur_title.pack()
-
-        box_new = tk.Frame(right, bg=PANEL2)
-        box_new.pack(pady=(12, 0), ipadx=10, ipady=10)
-        self.new_prev = tk.Label(box_new, bg=PANEL2, width=12, fg=MUTED)
-        self.new_prev.pack()
-        self.new_title = tk.Label(right, bg=PANEL, fg=MUTED, font=(self.fam, 9))
-        self.new_title.pack()
-
-        self.pick_btn = self._button(right, "", self._pick_image, PANEL2, ACCENT, padx=14)
-        self.pick_btn.pack(pady=(14, 4))
-        self.apply_btn = self._button(right, "", self._apply, ACCENT, "#10121a",
-                                      padx=20, bold=True)
-        self.apply_btn.pack(pady=4)
-        self.restore_btn = self._button(right, "", self._restore, PANEL2, RED, padx=14)
-        self.restore_btn.pack(pady=4)
-
-        self.status = tk.Label(self, bg=BG, fg=MUTED, font=(self.fam, 10), justify="center")
-        self.status.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        self.status = tk.Label(inner, bg=BG, fg=MUTED, font=(self.fam, 9))
+        self.status.pack(pady=(14, 0))
+        self._say(self.t["hint"])
 
         self._texts()
 
-    # навешиваем колесо прокрутки на всё дерево списка
-    def _wheel(self, w):
-        w.bind("<MouseWheel>", lambda e: self.list.yview_scroll(-e.delta // 120, "units"))
-        w.bind("<Button-4>", lambda e: self.list.yview_scroll(-1, "units"))
-        w.bind("<Button-5>", lambda e: self.list.yview_scroll(1, "units"))
-        for c in w.winfo_children():
-            self._wheel(c)
+    def _entry(self, parent, ph):
+        e = tk.Entry(parent, bg=PANEL2, fg=MUTED, relief="flat", highlightthickness=0,
+                     insertbackground=TEXT, font=(self.fam, 9))
+        e.insert(0, ph)
+        e.bind("<FocusIn>", lambda e: self._out(e.widget))
+        e.bind("<FocusOut>", lambda e: self._back(e.widget, ph))
+        return e
 
-    def _button(self, parent, text, cmd, bg, fg, small=False, bold=False, padx=6, pady=1):
-        b = tk.Label(parent, text=text, bg=bg, fg=fg, cursor="hand2", padx=padx,
-                     pady=3 if small else pady + 4,
-                     font=(self.fam, 9 if small else 10, "bold" if bold else "normal"))
+    def _out(self, e):
+        if e.get() in (self.t["app_ph"], self.t["img_ph"]):
+            e.delete(0, "end")
+        e.configure(fg=TEXT)
+
+    def _back(self, e, ph):
+        if not e.get():
+            e.insert(0, ph)
+            e.configure(fg=MUTED)
+
+    def _button(self, parent, text, cmd, bg, fg, padx=6, bold=False):
+        # все кнопки одного размера и стиля; активная — белая
+        b = tk.Label(parent, text=text, bg=bg, fg=fg, cursor="hand2", padx=padx, pady=5,
+                     font=(self.fam, 9, "bold" if bold else "normal"))
         b.bind("<Button-1>", lambda e: cmd())
-        b.bind("<Enter>", lambda e: b.configure(bg=PANEL2 if bg == PANEL2 else "#8fb0f9"))
-        b.bind("<Leave>", lambda e: b.configure(bg=bg))
+        b.bind("<Enter>", lambda e, r=b, c=bg: r.configure(bg=HOVER if c != TEXT else "#d0d0d0"))
+        b.bind("<Leave>", lambda e, r=b, c=bg: r.configure(bg=c))
         return b
 
-    # ---------- список ----------
-    def _fill_list(self):
-        for r in self._rows:
-            r.destroy()
-        self._rows = []
-
-        q = self.search_var.get().strip().lower()
-        if q == self.t["search"]:
-            q = ""
-        shown = [a for a in self.all_apps if q in a.name.lower()]
-
-        for a in shown:
-            row = tk.Frame(self.inner, bg=PANEL, cursor="hand2")
-            row.pack(fill="x")
-            bar = tk.Frame(row, bg=ACCENT, width=3)
-            lbl = tk.Label(row, text=a.name, bg=PANEL, fg=TEXT, anchor="w",
-                           font=(self.fam, 10), padx=14, pady=7)
-            lbl.pack(fill="x")
-            a._row = row
-            a._bar = bar
-            a._lbl = lbl
-            row.bind("<Button-1>", lambda e, x=a: self._select(x))
-            lbl.bind("<Button-1>", lambda e, x=a: self._select(x))
-            row.bind("<Enter>", lambda e, x=a: self._row_bg(x, PANEL2))
-            lbl.bind("<Enter>", lambda e, x=a: self._row_bg(x, PANEL2))
-            row.bind("<Leave>", lambda e, x=a: self._row_bg(x, PANEL))
-            lbl.bind("<Leave>", lambda e, x=a: self._row_bg(x, PANEL))
-            self._wheel(row)
-            self._wheel(lbl)
-            self._rows.append(row)
-
-        self.count_label.configure(text=self.t["loaded"].format(len(shown)))
-        self.list.yview_moveto(0)
-
-    def _row_bg(self, app, color):
-        if self.selected is app:
-            return
-        if not app._row.winfo_exists():
-            return
-        app._row.configure(bg=color)
-        app._lbl.configure(bg=color)
-
-    def _select(self, app):
-        if self.selected is not None and self.selected._row.winfo_exists():
-            self._row_bg_plain(self.selected)
-            self.selected._bar.pack_forget()
-        self.selected = app
-        app._bar.pack(side="left", fill="y")
-        app._row.configure(bg=PANEL2)
-        app._lbl.configure(bg=PANEL2)
-        self.app_name.configure(text=app.name)
-        self._show_current(app)
-
-    def _row_bg_plain(self, app):
-        app._row.configure(bg=PANEL)
-        app._lbl.configure(bg=PANEL)
-
-    # ---------- превью ----------
-    def _show_current(self, app):
-        path = _find_icon(app.icon)
-        self._cur_thumb = None
+    # ---------- выбор ----------
+    def _pick_app(self):
+        kinds = [("Desktop", "*.desktop")] if os.name != "nt" else [("Shortcuts", "*.lnk *.exe")]
+        path = filedialog.askopenfilename(title=self.t["dlg_app"],
+                                          initialdir=_initial_dir(), filetypes=[kinds[0], ("All files", "*.*")])
         if path:
-            try:
-                img = Image.open(path).convert("RGBA").resize((88, 88), Image.LANCZOS)
-                self._cur_thumb = ImageTk.PhotoImage(img)
-                self.cur_prev.configure(image=self._cur_thumb, text="", width=88)
-                return
-            except Exception:
-                pass
-        self.cur_prev.configure(image="", text="?", width=12)
+            self.app_entry.delete(0, "end")
+            self.app_entry.insert(0, path)
+            self._load_app(path)
 
-    def _show_new(self, path):
-        try:
-            img = Image.open(path).convert("RGBA")
-            img.thumbnail((88, 88), Image.LANCZOS)
-            self._thumb = ImageTk.PhotoImage(img)
-            self.new_prev.configure(image=self._thumb, text="", width=88)
-        except Exception:
-            self.new_prev.configure(image="", text="!", width=12)
-
-    # ---------- действия ----------
     def _pick_image(self):
-        path = filedialog.askopenfilename(
-            title=self.t["new"],
-            filetypes=[self.t["img_types"], ("All files", "*.*")])
-        if not path:
+        path = filedialog.askopenfilename(title=self.t["dlg_img"],
+                                          filetypes=[self.t["img_types"], ("All files", "*.*")])
+        if path:
+            self.img_entry.delete(0, "end")
+            self.img_entry.insert(0, path)
+            self._load_image(path)
+
+    def _load_app_from_entry(self, _e=None):
+        self._load_app(self.app_entry.get())
+
+    def _load_img_from_entry(self, _e=None):
+        self._load_image(self.img_entry.get())
+
+    def _load_app(self, path):
+        try:
+            self.selected = from_path(path)
+        except Exception:
+            self.selected = None
+            return self._say(self.t["bad_path"])
+        self.app_path = path
+        self._say(self.selected.name + "  —  " + self.t["hint"])
+
+    def _load_image(self, path):
+        if not os.path.isfile(path):
             return
         self.image_path = path
-        self._show_new(path)
-        self._say(path.rsplit("/", 1)[-1])
+        try:
+            img = Image.open(path).convert("RGBA")
+            img.thumbnail((28, 28), Image.LANCZOS)
+            self._thumb = ImageTk.PhotoImage(img)
+            self.thumb.configure(image=self._thumb, text="", width=28)
+        except Exception:
+            self.thumb.configure(image="", text="!", width=3)
 
+    # ---------- действия ----------
     def _apply(self):
         if self.selected is None:
-            return self._say(self.t["need_app"], RED)
+            return self._say(self.t["need_app"])
         if not self.image_path:
-            return self._say(self.t["need_image"], RED)
-        app = self.selected
-        out = backup.ROOT / "icons" / app.id
+            return self._say(self.t["need_img"])
+        out = backup.ROOT / "icons" / self.selected.id
+        out.mkdir(parents=True, exist_ok=True)
         try:
             icons.make_icons(self.image_path, out)
-            self.platform.apply(app, out)
+            self.platform.apply(self.selected, out)
         except Exception as e:
-            return self._say(str(e), RED)
-        self._show_current(app)
-        self._say(self.t["applied"], GREEN)
+            return self._say(str(e))
+        self._say(self.t["applied"])
 
     def _restore(self):
         if self.selected is None:
-            return self._say(self.t["need_app"], RED)
+            return self._say(self.t["need_app"])
         try:
             self.platform.restore(self.selected)
         except Exception as e:
-            return self._say(str(e), RED)
-        self._show_current(self.selected)
-        self._say(self.t["restored"], GREEN)
+            return self._say(str(e))
+        self._say(self.t["restored"])
 
-    # ---------- язык и мелочи ----------
+    # ---------- язык ----------
     def _texts(self):
         t = self.t
-        self.subtitle.configure(text=t["subtitle"])
         self.lang_btn.configure(text=LANGS["en" if self.lang == "ru" else "ru"]["lang"])
-        self.cur_title.configure(text=t["current"])
-        self.new_title.configure(text=t["new"])
-        if not self.image_path:
-            self.new_prev.configure(text=t["new"], image="", width=12)
-        self.pick_btn.configure(text=t["pick"])
+        self.app_btn.configure(text=t["pick_app"])
+        self.img_btn.configure(text=t["pick_img"])
         self.apply_btn.configure(text=t["apply"])
         self.restore_btn.configure(text=t["restore"])
-        self._say(t["select_hint"])
-        val = self.search_var.get()
-        was_placeholder = val == LANGS["en" if self.lang == "en" else "ru"]["search"] or val == ""
-        self.search_var.set(t["search"] if not self.search.get() else val)
-        if was_placeholder:
-            self.search_var.set(t["search"])
+        self._field(self.app_entry, self.app_path, t["app_ph"])
+        self._field(self.img_entry, self.image_path, t["img_ph"])
+        self._say(self.t["hint"])
+
+    def _field(self, e, path, ph):
+        e.delete(0, "end")
+        e.insert(0, path or ph)
 
     def _switch_lang(self):
         self.lang = "en" if self.lang == "ru" else "ru"
         self.t = LANGS[self.lang]
         self._texts()
-        self._fill_list()
 
     def _say(self, text, color=MUTED):
         self.status.configure(text=text, fg=color)
-
-    def _placeholder_out(self, _e=None):
-        if self.search_var.get() == self.t["search"]:
-            self.search.delete(0, "end")
-
-    def _placeholder_in(self, _e=None):
-        if not self.search_var.get():
-            self.search.insert(0, self.t["search"])

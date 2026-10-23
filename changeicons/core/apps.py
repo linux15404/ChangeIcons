@@ -85,7 +85,7 @@ def _list_windows():
 
 
 def _list_linux():
-    apps = {}
+    found = {}
     for d in _dirs():
         if not d.is_dir():
             continue
@@ -95,7 +95,32 @@ def _list_linux():
                 continue
             writable = f.parent == USER_APPS
             # первый найденный файл с таким id и есть главный, дубли пропускаем
-            if f.name in apps and not writable:
+            if f.name in found and not writable:
                 continue
-            apps[f.name] = App(f.name, info["name"], info["icon"], f, writable)
-    return sorted(apps.values(), key=lambda a: a.name.lower())
+            found[f.name] = App(f.name, info["name"], info["icon"], f, writable)
+    return sorted(found.values(), key=lambda a: a.name.lower())
+
+
+def from_path(path):
+    # пользователь сам указал файл приложения — собираем из него App
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise ValueError("no file: " + str(p))
+    if sys.platform == "win32":
+        low = p.suffix.lower()
+        if low == ".lnk":
+            import pythoncom
+            from win32com.client import Dispatch
+
+            pythoncom.CoInitialize()
+            sc = Dispatch("WScript.Shell").CreateShortCut(str(p))
+            return App(p.name, p.stem, sc.IconLocation or "", p, True, sc.Targetpath or "")
+        if low == ".exe":
+            return App(p.name, p.stem, "", p, True, str(p))
+        raise ValueError("need .lnk or .exe")
+    if p.suffix.lower() != ".desktop":
+        raise ValueError("need .desktop")
+    info = _read(p)
+    if info is None:
+        raise ValueError("not an app file")
+    return App(p.name, info["name"], info["icon"], p, p.parent == USER_APPS)
