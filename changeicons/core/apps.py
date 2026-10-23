@@ -1,15 +1,17 @@
 import configparser
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
 @dataclass
 class App:
-    id: str          # имя .desktop-файла, например org.gimp.GIMP.desktop
+    id: str          # имя .desktop-файла (linux) или путь к ярлыку (windows)
     name: str        # человеческое название
     icon: str        # что написано в Icon=
     desktop: Path    # где лежит файл сейчас
     writable: bool   # наш собственный файл (можно править напрямую) или системный
+    exec: str = ""   # команда запуска; на windows тут путь к exe
 
 
 # папки в порядке приоритета: пользовательская главнее
@@ -40,6 +42,49 @@ def _read(path):
 
 
 def list_apps():
+    if sys.platform == "win32":
+        return _list_windows()
+    return _list_linux()
+
+
+def _list_windows():
+    # хотим ярлыки из «Пуска» — у большинства программ они есть
+    import os
+
+    appdata = os.environ.get("APPDATA", str(Path.home() / "AppData/Roaming"))
+    progdata = os.environ.get("PROGRAMDATA", str(Path.home() / ".."))
+    bases = [
+        Path(appdata) / "Microsoft/Windows/Start Menu/Programs",
+        Path(progdata) / "Microsoft/Windows/Start Menu/Programs",
+    ]
+    try:
+        import pythoncom
+        from win32com.client import Dispatch
+    except ImportError:
+        return []
+
+    pythoncom.CoInitialize()
+    shell = Dispatch("WScript.Shell")
+    apps = {}
+    for d in bases:
+        if not d.is_dir():
+            continue
+        for f in sorted(d.rglob("*.lnk")):
+            # id из относительного пути — folders с одинаковыми именами не конфликтуют
+            rid = "__".join(f.relative_to(d).parts).replace(" ", "_")
+            if rid in apps:
+                continue
+            try:
+                sc = shell.CreateShortCut(str(f))
+                target = sc.Targetpath
+                icon = sc.IconLocation
+            except Exception:
+                target, icon = "", ""
+            apps[rid] = App(rid, f.stem, icon, f, True, target)
+    return sorted(apps.values(), key=lambda a: a.name.lower())
+
+
+def _list_linux():
     apps = {}
     for d in _dirs():
         if not d.is_dir():

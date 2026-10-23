@@ -9,7 +9,6 @@ from ..core import icons
 from ..core.apps import list_apps
 from ..platforms.base import get_platform
 from .strings import LANGS
-
 BG = "#16161e"
 PANEL = "#1f2335"
 PANEL2 = "#262b40"
@@ -32,16 +31,20 @@ ICON_DIRS = [
 def _find_icon(name):
     if not name:
         return None
+    # windows пишет иконку как "C:\...\icon.ico,0" — отсекаем индекс
+    if name.count(",") and name.rsplit(",", 1)[1].strip().isdigit():
+        name = name.rsplit(",", 1)[0]
+    low = name.lower()
+    import os
+
+    if low.endswith((".png", ".ico", ".gif", ".xpm", ".jpg", ".jpeg")):
+        return name if os.path.exists(name) else None
     if name.startswith("/"):
-        return name if name.endswith((".png", ".xpm", ".gif")) else None
-    for d in ICON_DIRS:
-        for ext in (".png", ".xpm"):
-            p = f"{d}/{name}{ext}"
-            try:
-                with open(p, "rb"):
+        for d in ICON_DIRS:
+            for ext in (".png", ".xpm"):
+                p = f"{d}/{name}{ext}"
+                if os.path.exists(p):
                     return p
-            except OSError:
-                pass
     return None
 
 

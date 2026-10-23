@@ -1,7 +1,14 @@
+import sys
 import shutil
 from pathlib import Path
 
-ROOT = Path.home() / ".local/share/changeicons"
+if sys.platform == "win32":
+    import os
+
+    _appdata = os.environ.get("APPDATA", str(Path.home() / "AppData/Roaming"))
+    ROOT = Path(_appdata) / "ChangeIcons"
+else:
+    ROOT = Path.home() / ".local/share/changeicons"
 
 
 def backup_dir(app_id):
