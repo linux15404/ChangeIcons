@@ -35,7 +35,7 @@ class WindowsPlatform(Platform):
         p.write_text(json.dumps(meta), encoding="utf-8")
 
     def backup(self, app):
-        # запоминаем мету ярлыка и копируем exe целиком — путь со 100% откатом
+        # мету ярлыка запоминаем, exe копируем целиком
         meta = self._meta(app)
         lnk = Path(app.desktop)
         meta.setdefault("lnk", str(lnk))
@@ -95,7 +95,7 @@ class WindowsPlatform(Platform):
     # ---------- врезание иконки в exe ----------
     @staticmethod
     def _parse_ico(data):
-        # директория .ico: 6 байт шапка + записи по 16 байт, потом сами картинки
+        # .ico: шапка 6 байт, записи по 16, за ними сами картинки
         _, _, cnt = struct.unpack_from("<HHH", data, 0)
         images = []
         for i in range(cnt):
@@ -105,22 +105,27 @@ class WindowsPlatform(Platform):
 
     def _patch_exe(self, exe, ico_bytes):
         import win32api
+        import win32con
 
         images = self._parse_ico(ico_bytes)
 
-        # ищем существующую группу иконок и её элементы
+        # exe открываем как файл данных, чтобы посмотреть его иконки
         gid, old_ids, old_type = 1, [], 3
+        lib = win32api.LoadLibraryEx(str(exe), 0, win32con.LOAD_LIBRARY_AS_DATAFILE)
         try:
-            groups = list(win32api.EnumResourceNames(None, RT_GROUP_ICON))
+            try:
+                groups = list(win32api.EnumResourceNames(lib, RT_GROUP_ICON))
+            except Exception:
+                groups = []
             if groups:
                 gid = groups[0]
-                grp = win32api.LoadResource(None, RT_GROUP_ICON, gid)
+                grp = win32api.LoadResource(lib, RT_GROUP_ICON, gid)
                 _, old_type, cnt = struct.unpack_from("<HHH", grp, 0)
                 for i in range(cnt):
                     entry = struct.unpack_from("<4BHHIH", grp, 6 + i * 14)
                     old_ids.append(entry[6])
-        except Exception:
-            old_ids = []
+        finally:
+            win32api.FreeLibrary(lib)
 
         h = win32api.BeginUpdateResource(str(exe), 0)
         ok = False

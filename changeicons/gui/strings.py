@@ -1,6 +1,6 @@
 RU = {
-    "app_ph": "путь к приложению (.desktop / .lnk / .exe)",
-    "img_ph": "путь к картинке (png / jpg / webp)",
+    "app_ph": "путь к приложению",
+    "img_ph": "путь к картинке",
     "pick_app": "приложение...",
     "pick_img": "картинка...",
     "apply": "применить",
@@ -18,8 +18,8 @@ RU = {
 }
 
 EN = {
-    "app_ph": "path to the app (.desktop / .lnk / .exe)",
-    "img_ph": "path to an image (png / jpg / webp)",
+    "app_ph": "path to the app",
+    "img_ph": "path to an image",
     "pick_app": "app...",
     "pick_img": "image...",
     "apply": "apply",

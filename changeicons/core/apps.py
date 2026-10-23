@@ -48,7 +48,7 @@ def list_apps():
 
 
 def _list_windows():
-    # хотим ярлыки из «Пуска» — у большинства программ они есть
+    # ярлыки из «Пуска» — они есть почти у всех программ
     import os
 
     appdata = os.environ.get("APPDATA", str(Path.home() / "AppData/Roaming"))
@@ -70,7 +70,7 @@ def _list_windows():
         if not d.is_dir():
             continue
         for f in sorted(d.rglob("*.lnk")):
-            # id из относительного пути — folders с одинаковыми именами не конфликтуют
+            # id из относительного пути, чтобы одинаковые имена не путались
             rid = "__".join(f.relative_to(d).parts).replace(" ", "_")
             if rid in apps:
                 continue

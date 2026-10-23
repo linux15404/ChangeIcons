@@ -18,7 +18,6 @@ PANEL2 = "#212121"
 HOVER = "#2c2c2c"
 TEXT = "#f2f2f2"
 MUTED = "#8d8d8d"
-ERROR = "#c9c9c9"
 
 LOGO = Path(__file__).parent.parent / "assets/logo.png"
 
@@ -37,8 +36,8 @@ class App(tk.Tk):
         super().__init__()
         self.title("ChangeIcons")
         self.configure(bg=BG)
-        self.geometry("480x360")
-        self.minsize(440, 330)
+        self.geometry("460x330")
+        self.minsize(430, 310)
 
         fams = tkfont.families()
         self.fam = next((f for f in ("Ubuntu", "Noto Sans", "Segoe UI", "DejaVu Sans") if f in fams), "TkDefaultFont")
@@ -67,7 +66,9 @@ class App(tk.Tk):
         head.grid(row=0, column=0, sticky="ew")
         logo = Image.open(LOGO).resize((26, 26), Image.LANCZOS)
         self._logo_img = ImageTk.PhotoImage(logo)
-        tk.Label(head, image=self._logo_img, bg=PANEL).pack(side="left", padx=(16, 8), pady=8)
+        tk.Label(head, image=self._logo_img, bg=PANEL).pack(side="left", padx=(14, 8), pady=8)
+        tk.Label(head, text="ChangeIcons", bg=PANEL, fg=TEXT,
+                 font=(self.fam, 12, "bold")).pack(side="left")
         self.lang_btn = self._button(head, LANGS["en"]["lang"], self._switch_lang,
                                      PANEL, MUTED, padx=10)
         self.lang_btn.pack(side="right", padx=12)

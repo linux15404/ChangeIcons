@@ -24,3 +24,6 @@ classifiers = [
 
 [tool.setuptools.packages.find]
 include = ["changeicons*"]
+
+[tool.setuptools.package-data]
+changeicons = ["assets/*.png"]

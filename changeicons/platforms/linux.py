@@ -10,8 +10,7 @@ class LinuxPlatform(Platform):
     name = "linux"
 
     def backup(self, app):
-        # сохраняем исходный .desktop только если это наш пользовательский файл,
-        # системные не трогаем вообще — переопределяем копией
+        # оригинал сохраняем только для наших файлов, системные не трогаем
         if app.writable:
             saved = backup.saved_name(app.id, app.id)
             if not saved.exists():
